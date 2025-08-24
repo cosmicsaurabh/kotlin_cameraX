@@ -1,3 +1,4 @@
+package com.example.cameraX // Or your actual package name
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle

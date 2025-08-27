@@ -3,54 +3,38 @@ package com.example.cameraX
 import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
-import androidx.camera.core.Camera
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.FileOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
+import androidx.camera.video.*
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/**
+ * Composable that shows the camera preview and control bar
+ */
 @Composable
 fun CameraScreen() {
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
-    // State holders
+    // State variables for CameraX use cases
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
     var torchEnabled by remember { mutableStateOf(false) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_OFF) }
 
-    // Rotation state
+    // Track device rotation and update capture targets
     var targetRotation by remember { mutableIntStateOf(Surface.ROTATION_0) }
     DisposableEffect(Unit) {
         val listener = object : OrientationEventListener(context) {
@@ -69,10 +53,10 @@ fun CameraScreen() {
         onDispose { listener.disable() }
     }
 
-    // PreviewView (camera preview UI)
+    // PreviewView (native Android camera preview inside Compose)
     val previewView = remember { PreviewView(context) }
 
-
+    // Bind camera use cases whenever lens or rotation changes
     LaunchedEffect(lensFacing, targetRotation) {
         scope.launch(Dispatchers.Main) {
             val cameraProvider = ProcessCameraProvider.getInstance(context).get()
@@ -93,6 +77,7 @@ fun CameraScreen() {
             val vidCapture = VideoCapture.withOutput(recorder)
 
             try {
+                // Rebind all use cases
                 cameraProvider.unbindAll()
 
                 val selector = CameraSelector.Builder()
@@ -101,26 +86,25 @@ fun CameraScreen() {
 
                 val cam = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
-                    selector,   // use the selected lens
+                    selector,
                     preview,
                     imgCapture,
                     vidCapture
                 )
 
+                // Setup global controller
                 CameraXController.setup(
                     imgCapture,
                     vidCapture,
-                    context,
-                    onMediaCaptured = { filePath ->
-                        Log.d("CameraApp", "Media captured: $filePath")
-                    },
-                    setRecordingRef = { activeRecording = it }
-                )
+                    context
+                ) { filePath ->
+                    Log.d("CameraApp", "Media captured: $filePath")
+                }
 
-
-                // ✅ THIS IS THE IMPORTANT PART
+                // Attach preview surface
                 preview.setSurfaceProvider(previewView.surfaceProvider)
 
+                // Update state
                 imageCapture = imgCapture
                 videoCapture = vidCapture
                 camera = cam
@@ -133,8 +117,7 @@ fun CameraScreen() {
         }
     }
 
-
-    // UI
+    // UI with camera preview + controls bar
     Scaffold(
         bottomBar = {
             ControlsBar(
@@ -143,52 +126,16 @@ fun CameraScreen() {
                     if (isRecording) CameraXController.startVideo()
                     else CameraXController.stopVideo()
                 },
-                /*
-                onTakePhoto = {
-                    imageCapture?.let { capture ->
-                        val outputOptions = ImageCapture.OutputFileOptions.Builder(
-                            context.cacheDir.resolve("photo_${System.currentTimeMillis()}.jpg")
-                        ).build()
-                        capture.takePicture(
-                            outputOptions,
-                            ContextCompat.getMainExecutor(context),
-                            object : ImageCapture.OnImageSavedCallback {
-                                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                    Log.d("CameraApp", "Photo saved: ${outputFileResults.savedUri}")
-                                }
-
-                                override fun onError(exc: ImageCaptureException) {
-                                    Log.e("CameraApp", "Photo capture failed: ${exc.message}", exc)
-                                }
-                            }
-                        )
-                    }
-                },
-                onToggleVideo = {
-                    if (activeRecording != null) {
-                        activeRecording?.stop()
-                        activeRecording = null
-                    } else {
-                        videoCapture?.let { vidCap ->
-                            val file = context.cacheDir.resolve("video_${System.currentTimeMillis()}.mp4")
-                            val outputOptions = FileOutputOptions.Builder(file).build()
-                            activeRecording = vidCap.output
-                                .prepareRecording(context, outputOptions)
-                                .start(ContextCompat.getMainExecutor(context)) {
-                                    Log.d("CameraApp", "Recording event: $it")
-                                }
-                        }
-                    }
-                },
-                */
                 onSwitchCamera = {
                     lensFacing =
-                        if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT
-                        else CameraSelector.LENS_FACING_BACK
+                        if (lensFacing == CameraSelector.LENS_FACING_BACK)
+                            CameraSelector.LENS_FACING_FRONT
+                        else
+                            CameraSelector.LENS_FACING_BACK
                 },
-                onToggleFlash = {
-                    torchEnabled = !torchEnabled
-                    camera?.cameraControl?.enableTorch(torchEnabled)
+                onToggleFlash = { enabled ->
+                    torchEnabled = enabled
+                    camera?.cameraControl?.enableTorch(enabled)
                 }
             )
         }

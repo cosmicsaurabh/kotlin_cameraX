@@ -72,49 +72,6 @@ fun CameraScreen() {
     // PreviewView (camera preview UI)
     val previewView = remember { PreviewView(context) }
 
-    // Bind/unbind camera whenever lens changes
-//    LaunchedEffect(lensFacing) {
-//        scope.launch(Dispatchers.Main) {
-//            val cameraProvider = ProcessCameraProvider.getInstance(context).get()
-//            val preview = Preview.Builder()
-//                .setTargetRotation(targetRotation)
-//                .build()
-//            val imgCapture = ImageCapture.Builder()
-//                .setFlashMode(flashMode)
-//                .setTargetRotation(targetRotation)
-//                .build()
-//            val recorder = Recorder.Builder()
-//                .setQualitySelector(QualitySelector.from(Quality.FHD))
-//                .build()
-//            val vidCapture = VideoCapture.withOutput(recorder)
-//
-//            try {
-//                cameraProvider.unbindAll()
-//                val selector = CameraSelector.Builder()
-//                    .requireLensFacing(lensFacing)
-//                    .build()
-//
-//                val cam = cameraProvider.bindToLifecycle(
-//                    lifecycleOwner,
-//                    selector,
-//                    preview,
-//                    imgCapture,
-//                    vidCapture
-//                )
-//
-//                preview.surfaceProvider = previewView.surfaceProvider
-//
-//                imageCapture = imgCapture
-//                videoCapture = vidCapture
-//                camera = cam
-//
-//                cam.cameraControl.enableTorch(torchEnabled)
-//
-//            } catch (e: Exception) {
-//                Log.e("CameraApp", "Binding failed", e)
-//            }
-//        }
-//    }
 
     LaunchedEffect(lensFacing, targetRotation) {
         scope.launch(Dispatchers.Main) {
@@ -130,7 +87,7 @@ fun CameraScreen() {
                 .build()
 
             val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.from(Quality.FHD))
+                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
                 .build()
 
             val vidCapture = VideoCapture.withOutput(recorder)
@@ -144,11 +101,22 @@ fun CameraScreen() {
 
                 val cam = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
-                    selector,
+                    selector,   // use the selected lens
                     preview,
                     imgCapture,
                     vidCapture
                 )
+
+                CameraXController.setup(
+                    imgCapture,
+                    vidCapture,
+                    context,
+                    onMediaCaptured = { filePath ->
+                        Log.d("CameraApp", "Media captured: $filePath")
+                    },
+                    setRecordingRef = { activeRecording = it }
+                )
+
 
                 // ✅ THIS IS THE IMPORTANT PART
                 preview.setSurfaceProvider(previewView.surfaceProvider)
@@ -170,6 +138,12 @@ fun CameraScreen() {
     Scaffold(
         bottomBar = {
             ControlsBar(
+                onTakePhoto = { CameraXController.takePhoto() },
+                onToggleVideo = { isRecording ->
+                    if (isRecording) CameraXController.startVideo()
+                    else CameraXController.stopVideo()
+                },
+                /*
                 onTakePhoto = {
                     imageCapture?.let { capture ->
                         val outputOptions = ImageCapture.OutputFileOptions.Builder(
@@ -206,6 +180,7 @@ fun CameraScreen() {
                         }
                     }
                 },
+                */
                 onSwitchCamera = {
                     lensFacing =
                         if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT

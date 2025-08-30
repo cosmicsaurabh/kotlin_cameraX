@@ -19,11 +19,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-// NEW imports for Material icons
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import android.content.pm.ActivityInfo
+import androidx.compose.runtime.saveable.rememberSaveable
+import findActivity
+
 
 @Composable
 fun CameraScreen(vm: CameraViewModel = viewModel()) {
@@ -36,6 +39,8 @@ fun CameraScreen(vm: CameraViewModel = viewModel()) {
     var camera by remember { mutableStateOf<Camera?>(null) }
 
     var targetRotation by remember { mutableIntStateOf(Surface.ROTATION_0) }
+    var previousRequestedOrientation by rememberSaveable { mutableStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
+
 
     DisposableEffect(Unit) {
         val listener = object : OrientationEventListener(context) {
@@ -109,6 +114,16 @@ fun CameraScreen(vm: CameraViewModel = viewModel()) {
                     onRecordingStateChanged = { active ->
                         vm.isRecording = active
                         camera?.cameraControl?.enableTorch(active && vm.flashEnabled)
+
+                        // 🔒 lock/unlock orientation here
+                        val activity = context.findActivity()
+                        if (active) {
+                            activity.requestedOrientation =
+                                ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                        } else {
+                            activity.requestedOrientation =
+                                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        }
                     }
                 )
             } catch (e: Exception) {
@@ -177,19 +192,29 @@ fun CameraScreen(vm: CameraViewModel = viewModel()) {
                     .padding(horizontal = 24.dp)
             ) { Text("📸") }
 
-            // BOTTOM-RIGHT: video start/stop
+
             Button(
                 onClick = {
+                    val activity = context.findActivity()
                     if (!vm.isRecording) {
+                        // lock right away (before CameraX async start)
+                        previousRequestedOrientation = activity.requestedOrientation
+                        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+
                         camera?.cameraControl?.enableTorch(vm.flashEnabled)
                         CameraXController.startVideo()
                     } else {
                         CameraXController.stopVideo()
                         camera?.cameraControl?.enableTorch(false)
+
+                        // unlock immediately; finalize callback will also ensure it's unlocked
+                        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     }
                 },
                 modifier = Modifier.padding(start = 24.dp)
-            ) { Text(if (vm.isRecording) "⏹" else "🎥") }
+            ) {
+                Text(if (vm.isRecording) "⏹" else "🎥")
+            }
         }
     }
 }

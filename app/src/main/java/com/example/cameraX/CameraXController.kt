@@ -16,112 +16,93 @@ import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/**
- * Singleton controller to handle CameraX actions like
- * taking photos and recording videos.
- */
 object CameraXController {
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var appContext: Context? = null
+
     private var mediaCapturedCallback: ((String) -> Unit)? = null
+    private var recordingStateCallback: ((Boolean) -> Unit)? = null
+
     private var recordingRef: Recording? = null
 
-    /**
-     * Initialize controller with ImageCapture & VideoCapture use cases
-     */
     fun setup(
         imgCap: ImageCapture?,
         vidCap: VideoCapture<Recorder>?,
         context: Context,
-        onMediaCaptured: (String) -> Unit
+        onMediaCaptured: (String) -> Unit,
+        onRecordingStateChanged: (Boolean) -> Unit
     ) {
         imageCapture = imgCap
         videoCapture = vidCap
         appContext = context.applicationContext
         mediaCapturedCallback = onMediaCaptured
+        recordingStateCallback = onRecordingStateChanged
     }
 
-    /**
-     * Capture a photo and save it into MediaStore (Gallery)
-     */
     fun takePhoto() {
         val imgCap = imageCapture ?: run {
-            Log.e("CameraX", "ImageCapture is not initialized yet")
+            Log.e("CameraX", "ImageCapture not ready")
             return
         }
-
-        // Generate file name using timestamp
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-            .format(System.currentTimeMillis())
-
-        // Define MediaStore metadata
-        val contentValues = ContentValues().apply {
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+        val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Photos")
         }
-
-        // Output options to MediaStore
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(
+        val output = ImageCapture.OutputFileOptions.Builder(
             appContext!!.contentResolver,
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
+            values
         ).build()
 
-        // Take picture
         imgCap.takePicture(
-            outputOptions,
+            output,
             ContextCompat.getMainExecutor(appContext!!),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val uri = output.savedUri.toString()
-                    Log.d("CameraXController", "Photo saved: $uri")
-                    mediaCapturedCallback?.invoke(uri)
+                    mediaCapturedCallback?.invoke(output.savedUri.toString())
                 }
-
                 override fun onError(exc: ImageCaptureException) {
-                    Log.e("CameraXController", "Photo capture failed: ${exc.message}", exc)
+                    Log.e("CameraXController", "Photo failed: ${exc.message}", exc)
                 }
             }
         )
     }
 
-    /**
-     * Start recording a video and save it into MediaStore
-     */
     fun startVideo() {
-        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
-            appContext!!.contentResolver,
+        val ctx = appContext ?: return
+        val vc = videoCapture ?: run {
+            Log.e("CameraX", "VideoCapture not ready")
+            return
+        }
+        val media = MediaStoreOutputOptions.Builder(
+            ctx.contentResolver,
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         ).build()
 
-        val recorder = videoCapture?.output
-        var recording = recorder?.prepareRecording(appContext!!, mediaStoreOutput)
-
-        // Enable audio only if RECORD_AUDIO permission is granted
-        if (ContextCompat.checkSelfPermission(
-                appContext!!,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+        var pending = vc.output.prepareRecording(ctx, media)
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
         ) {
-            recording = recording?.withAudioEnabled()
+            pending = pending.withAudioEnabled()
         }
 
-        // Start recording
-        recordingRef = recording?.start(
-            ContextCompat.getMainExecutor(appContext!!)
-        ) { event ->
-            if (event is androidx.camera.video.VideoRecordEvent.Finalize) {
-                val uri = event.outputResults.outputUri
-                mediaCapturedCallback?.invoke(uri.toString())
+        recordingRef = pending.start(ContextCompat.getMainExecutor(ctx)) { event ->
+            when (event) {
+                is androidx.camera.video.VideoRecordEvent.Start -> {
+                    recordingStateCallback?.invoke(true)
+                }
+                is androidx.camera.video.VideoRecordEvent.Finalize -> {
+                    mediaCapturedCallback?.invoke(event.outputResults.outputUri.toString())
+                    recordingStateCallback?.invoke(false)
+                }
+                is androidx.camera.video.VideoRecordEvent.Status -> { /* optional */ }
             }
         }
     }
 
-    /**
-     * Stop video recording
-     */
     fun stopVideo() {
         recordingRef?.stop()
         recordingRef = null

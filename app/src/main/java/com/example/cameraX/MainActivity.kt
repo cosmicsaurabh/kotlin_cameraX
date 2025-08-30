@@ -1,4 +1,5 @@
 package com.example.cameraX // Or your actual package name
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -7,12 +8,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.core.content.ContextCompat
-import com.example.cameraX.CameraScreen
 import android.widget.Toast
 
+/**
+ * Requests camera & audio permissions and shows CameraScreen.
+ */
 class MainActivity : ComponentActivity() {
 
-    // List of required permissions (Camera + Audio for video recording)
+    // Required permissions (Audio is needed only for video recording with sound)
     private val requiredPermissions = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO
@@ -21,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Register permission launcher
+        // Permission launcher
         val permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
@@ -33,7 +36,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Check if already granted
+        // Ask if not granted
         if (allPermissionsGranted()) {
             showCameraScreen()
         } else {
@@ -51,7 +54,7 @@ class MainActivity : ComponentActivity() {
     private fun showCameraScreen() {
         setContent {
             MaterialTheme {
-                CameraScreen()
+                CameraScreen() // ViewModel provided inside via viewModel()
             }
         }
     }
